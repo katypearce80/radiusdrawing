@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw and label the radius</title>
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #000000;
+    --muted: #444444;
+    --pen: #d6336c;
+    --ok: #1f7a4d;
+    --warn: #b4540a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Calibri, Carlito, Arial, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .wrap {
+    height: 100%;
+    max-width: 800px;
+    max-height: 450px;
+    margin: 0 auto;
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    line-height: 1.25;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .panels {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 12px;
+  }
+  .panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1.5px solid #000;
+    padding: 6px 10px 6px;
+  }
+  .prompt {
+    font-size: 16px;
+    margin: 2px 0 0 6px;
+    white-space: pre;
+  }
+  svg {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+  }
+  .msg {
+    flex: 1;
+    font-size: 12.5px;
+    line-height: 1.25;
+    color: var(--muted);
+  }
+  .msg.ok { color: var(--ok); font-weight: 700; }
+  .msg.warn { color: var(--warn); }
+  button {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--ink); color: #fff; }
+  button:hover { filter: brightness(0.94); }
+  button:focus-visible, input:focus-visible { outline: 3px solid #3b82f6; outline-offset: 1px; }
+  .label-input {
+    width: 100%;
+    height: 100%;
+    font: 700 15px Calibri, Carlito, Arial, sans-serif;
+    color: var(--pen);
+    text-align: center;
+    background: rgba(255,255,255,0.95);
+    border: 2px dashed var(--pen);
+    border-radius: 4px;
+    padding: 0 2px;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  @media (max-width: 520px) {
+    .panels { flex-direction: column; }
+    h1 { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Draw the radius by dragging from the centre to the edge of the circle. Then click above your line and type its length.</h1>
+  <div class="panels" id="panels"></div>
+</div>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var VB_W = 340, VB_H = 270;
+  var CX = 170, CY = 135, R = 112;
+  var TOL_CENTRE = 18;   // how close to the centre counts as "the centre"
+  var TOL_EDGE = 16;     // how close to the circle counts as "the edge"
+  var LABEL_W = 88, LABEL_H = 28;
+
+  var activities = [
+    { id: "a)", r: 112, radius: "9 cm",   pattern: /^9(\.0+)?\s*cm$/i },
+    { id: "b)", r: 95, radius: "3.5 cm", pattern: /^3\.5(0*)\s*cm$/i }
+  ];
+
+  var panelsEl = document.getElementById("panels");
+  activities.forEach(buildPanel);
+
+  function el(name, attrs, parent) {
+    var node = document.createElementNS(NS, name);
+    for (var k in attrs) node.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  function buildPanel(cfg, index) {
+    var R = cfg.r;
+    var panel = document.createElement("div");
+    panel.className = "panel";
+    panel.innerHTML =
+      '<p class="prompt">' + cfg.id + '    radius = ' + cfg.radius + '</p>';
+
+    var svg = el("svg", { viewBox: "0 0 " + VB_W + " " + VB_H, role: "img",
+      "aria-label": "Circle " + cfg.id + " with its centre marked. Radius " + cfg.radius + "." });
+    panel.appendChild(svg);
+
+    // Circle and centre
+    el("circle", { cx: CX, cy: CY, r: R, fill: "#ffffff", stroke: "#000", "stroke-width": 1.5 }, svg);
+    el("circle", { cx: CX, cy: CY, r: 4.5, fill: "#000" }, svg);
+
+    var lineEl = el("line", { stroke: "#d6336c", "stroke-width": 3, "stroke-linecap": "round", visibility: "hidden" }, svg);
+    var endDot = el("circle", { r: 3.5, fill: "#d6336c", visibility: "hidden" }, svg);
+
+    // Label (a text box inside an SVG foreignObject so it scales with the drawing)
+    var fo = el("foreignObject", { width: LABEL_W, height: LABEL_H, x: 0, y: 0, visibility: "hidden" }, svg);
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "label-input";
+    input.setAttribute("aria-label", "Length of the radius for circle " + (index + 1));
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("maxlength", "10");
+    fo.appendChild(input);
+
+    // Status bar and buttons
+    var bar = document.createElement("div");
+    bar.className = "bar";
+    var msg = document.createElement("div");
+    msg.className = "msg";
+    msg.textContent = "Start at the centre dot or on the circle.";
+    var checkBtn = document.createElement("button");
+    checkBtn.className = "primary";
+    checkBtn.textContent = "Check";
+    var resetBtn = document.createElement("button");
+    resetBtn.textContent = "Clear";
+    bar.appendChild(msg);
+    bar.appendChild(checkBtn);
+    bar.appendChild(resetBtn);
+    panel.appendChild(bar);
+    panelsEl.appendChild(panel);
+
+    // ---------- State ----------
+    var line = null;       // { x1, y1, x2, y2 } once a valid radius is drawn
+    var drag = null;       // { start, type, down, moved }
+    var labelPlaced = false;
+
+    function say(text, cls) {
+      msg.textContent = text;
+      msg.className = "msg" + (cls ? " " + cls : "");
+    }
+
+    function toSvg(evt) {
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX; pt.y = evt.clientY;
+      var m = svg.getScreenCTM();
+      return m ? pt.matrixTransform(m.inverse()) : { x: 0, y: 0 };
+    }
+
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+    function onCircle(p) {
+      var d = dist(p, { x: CX, y: CY });
+      return { x: CX + (p.x - CX) / d * R, y: CY + (p.y - CY) / d * R };
+    }
+
+    function showLine(x1, y1, x2, y2) {
+      lineEl.setAttribute("x1", x1); lineEl.setAttribute("y1", y1);
+      lineEl.setAttribute("x2", x2); lineEl.setAttribute("y2", y2);
+      lineEl.setAttribute("visibility", "visible");
+    }
+
+    function placeLabel(p) {
+      var x = Math.min(Math.max(p.x - LABEL_W / 2, 2), VB_W - LABEL_W - 2);
+      var y = Math.min(Math.max(p.y - LABEL_H / 2, 2), VB_H - LABEL_H - 2);
+      fo.setAttribute("x", x); fo.setAttribute("y", y);
+      fo.setAttribute("visibility", "visible");
+      labelPlaced = true;
+      setTimeout(function () { input.focus(); }, 0);
+    }
+
+    // ---------- Pointer handling ----------
+    svg.addEventListener("pointerdown", function (e) {
+      if (e.target.closest && e.target.closest("foreignObject")) return;
+      var p = toSvg(e);
+      var d = dist(p, { x: CX, y: CY });
+      var start = null, type = null;
+      if (d <= TOL_CENTRE) { start = { x: CX, y: CY }; type = "centre"; }
+      else if (Math.abs(d - R) <= TOL_EDGE) { start = onCircle(p); type = "edge"; }
+      drag = { start: start, type: type, down: p, moved: false };
+      try { svg.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+    });
+
+    svg.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      var p = toSvg(e);
+      if (!drag.moved && dist(p, drag.down) > 5) drag.moved = true;
+      if (drag.start && drag.moved) {
+        showLine(drag.start.x, drag.start.y, p.x, p.y);
+        endDot.setAttribute("visibility", "hidden");
+      }
+    });
+
+    svg.addEventListener("pointerup", function (e) {
+      if (!drag) return;
+      var d0 = drag;
+      drag = null;
+      var p = toSvg(e);
+
+      // A click without dragging: place the label above the line
+      if (!d0.moved) {
+        if (!line) {
+          say("Draw the radius first: drag from the centre dot to the circle.", "warn");
+        } else {
+          placeLabel(p);
+          say("Type the length of the radius, for example " + activities[index].radius + ".");
+        }
+        return;
+      }
+
+      if (!d0.start) {
+        restoreLine();
+        say("Start your line on the centre dot or on the circle.", "warn");
+        return;
+      }
+
+      var c = { x: CX, y: CY };
+      var end = null;
+      if (d0.type === "centre" && Math.abs(dist(p, c) - R) <= TOL_EDGE * 1.6) {
+        end = onCircle(p);
+      } else if (d0.type === "edge" && dist(p, c) <= TOL_CENTRE * 1.6) {
+        end = c;
+      }
+
+      if (!end) {
+        restoreLine();
+        say(d0.type === "centre"
+          ? "Your line should finish on the circle."
+          : "Your line should finish at the centre dot.", "warn");
+        return;
+      }
+
+      line = { x1: d0.start.x, y1: d0.start.y, x2: end.x, y2: end.y };
+      showLine(line.x1, line.y1, line.x2, line.y2);
+      var tip = d0.type === "centre" ? line : { x2: line.x1, y2: line.y1 };
+      endDot.setAttribute("cx", d0.type === "centre" ? line.x2 : line.x1);
+      endDot.setAttribute("cy", d0.type === "centre" ? line.y2 : line.y1);
+      endDot.setAttribute("visibility", "visible");
+      say("Now click above your line and type the length.");
+    });
+
+    svg.addEventListener("pointercancel", function () {
+      if (drag) { drag = null; restoreLine(); }
+    });
+
+    function restoreLine() {
+      if (line) showLine(line.x1, line.y1, line.x2, line.y2);
+      else lineEl.setAttribute("visibility", "hidden");
+      if (line) endDot.setAttribute("visibility", "visible");
+    }
+
+    // ---------- Buttons ----------
+    checkBtn.addEventListener("click", function () {
+      var text = input.value.trim();
+      if (!line) { say("Draw the radius from the centre to the circle first.", "warn"); return; }
+      if (!labelPlaced || !text) { say("Click above your line and type the length of the radius.", "warn"); return; }
+      if (cfg.pattern.test(text)) {
+        say("Correct! The radius is " + cfg.radius + ".", "ok");
+      } else {
+        say("The line is good, but check the length you typed. The radius is given above.", "warn");
+      }
+    });
+
+    resetBtn.addEventListener("click", function () {
+      line = null; drag = null; labelPlaced = false;
+      lineEl.setAttribute("visibility", "hidden");
+      endDot.setAttribute("visibility", "hidden");
+      fo.setAttribute("visibility", "hidden");
+      input.value = "";
+      say("Start at the centre dot or on the circle.");
+    });
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { input.blur(); checkBtn.focus(); }
+    });
+  }
+})();
+</script>
+</body>
+</html>
